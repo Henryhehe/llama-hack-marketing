@@ -11,9 +11,162 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
+
 # Load environment variables from .env file
 load_dotenv()
 app = FastAPI(title="Video Generator API", version="1.0.0")
+
+get_product_details_tool = {
+    "type": "function",
+    "function": {
+        "name": "get_product_details",
+        "description": "Retrieve the product details from the url, and key features as well as a few product images to be used",
+        "parameters": {
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The url of the product page"
+                }
+            },
+            "required": ["url"]
+        }
+    }
+}
+
+product_details_schema = {
+	"schema": {
+		"properties": {
+			"product_description": {
+				"type": "string"
+			},
+			"key_features": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"target_audience": {
+				"type": "string"
+			},
+			"product_images": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"status": {
+				"type": "string"
+			}
+		},
+		"required": [
+			"product_description",
+			"key_features",
+			"status"
+		],
+		"type": "object"
+	}
+}
+def parse_llama_product_details_response(result):
+    """
+    Parse LLAMA API response with the new response structure
+    """
+    try:
+        # Check if we have the expected structure
+        if 'completion_message' in result:
+            completion_message = result['completion_message']
+            
+            # Check if content exists and has the expected structure
+            if 'content' in completion_message and completion_message['content']:
+                content = completion_message['content']
+                
+                # Handle both text type and direct string content
+                if isinstance(content, dict) and 'text' in content:
+                    text_content = content['text']
+                elif isinstance(content, str):
+                    text_content = content
+                else:
+                    text_content = str(content)
+                
+                # Try to parse the text content as JSON
+                try:
+                    parsed_data = json.loads(text_content)
+                    return parsed_data
+                except json.JSONDecodeError:
+                    # If not valid JSON, create a basic response with the content
+                    return {
+                        "product_description": text_content[:500] if text_content else "",
+                        "key_features": [],
+                        "target_audience": "",
+                        "product_images": [],
+                        "status": "unknown"
+                    }
+        
+        # Fallback: If the structure doesn't match, return empty response
+        return {
+            "product_description": "",
+            "key_features": [],
+            "target_audience": "",
+            "product_images": [],
+            "status": "error"
+        }
+        
+    except Exception as e:
+        print(f"Error parsing LLAMA response: {e}")
+        return {
+            "product_description": "",
+            "key_features": [],
+            "target_audience": "",
+            "product_images": [],
+            "status": "error"
+        }
+
+
+
+# Alternative simpler version with content cleaning for LLM parsing
+def simple_fetch_html(url):
+    """Simple version with HTML cleaning to reduce token usage for LLM"""
+    try:
+        import re
+        from bs4 import BeautifulSoup
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove unnecessary elements that don't contain useful content
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 
+                           'aside', 'iframe', 'noscript', 'form', 'button']):
+            element.decompose()
+        
+        # Remove elements with common non-content classes/ids
+        remove_selectors = [
+            '[class*="ad"]', '[id*="ad"]', '[class*="banner"]', 
+            '[class*="popup"]', '[class*="modal"]', '[class*="cookie"]',
+            '[class*="social"]', '[class*="share"]', '[class*="newsletter"]',
+            '[class*="sidebar"]', '[class*="menu"]', '[class*="navigation"]'
+        ]
+        
+        for selector in remove_selectors:
+            for element in soup.select(selector):
+                element.decompose()
+        
+        # Get clean text content
+        clean_text = soup.get_text(separator=' ', strip=True)
+        
+        # Clean up extra whitespace
+        clean_text = re.sub(r'\s+', ' ', clean_text)
+        clean_text = re.sub(r'\n\s*\n', '\n', clean_text)
+        
+        return clean_text.strip()
+        
+    except ImportError:
+        print("BeautifulSoup not installed. Install with: pip install beautifulsoup4")
+        return None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 # CORS middleware for React frontend
 app.add_middleware(
@@ -30,6 +183,7 @@ class ScriptGenerationRequest(BaseModel):
     key_features: List[str]
     customer_info: Optional[str] = None
     style: Optional[str] = "professional"
+    additional_suggestions: Optional[str] = None
 
 class ScriptResponse(BaseModel):
     script: str
@@ -49,6 +203,16 @@ class VideoResponse(BaseModel):
     created_at: Optional[str] = None
     script: str
 
+class ProductUrlRequest(BaseModel):
+    url: str
+
+class ProductDetailsResponse(BaseModel):
+    product_description: str
+    key_features: List[str]
+    target_audience: Optional[str] = None
+    product_images: Optional[List[str]] = None
+    status: str
+
 # In-memory storage (replace with database later)
 generated_videos = {}
 
@@ -62,11 +226,48 @@ class LlamaService:
         self.base_url = "https://api.llama.com/v1"
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "text/event-stream"
+            "Authorization": f"Bearer {self.api_key}"
         }
     
-    def generate_script(self, product_description: str, key_features: List[str], customer_info: str = None, style: str = "professional") -> str:
+    def extract_product_details(self, url: str) -> dict:
+        """Extract product details from a given URL using Llama API with tool calling"""
+        html_content = simple_fetch_html(url)
+        user_prompt = f"Get the product details from the page {html_content}"
+        print(user_prompt)
+        payload = {
+            "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant that extracts product details from a given HTML page"},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": product_details_schema,
+            }
+        }
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self.headers,
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"LLAMA API error: {response.text}")
+            
+            result = response.json()
+            print(result)
+            # Extract the tool call result
+            parsed_result = parse_llama_product_details_response(result)
+            return parsed_result
+            
+        except requests.exceptions.RequestException as e:
+            raise HTTPException(status_code=500, detail=f"Error connecting to LLAMA API: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error extracting product details: {str(e)}")
+    
+    def generate_script(self, product_description: str, key_features: List[str], customer_info: str = None, style: str = "professional", additional_suggestions: str = None) -> str:
         # Create a detailed prompt for script generation
         features_text = "\n".join(f"- {feature}" for feature in key_features)
         
@@ -90,14 +291,18 @@ Target Audience: {customer_info or "General consumers"}
 
 Style: {style}
 
-Please generate a 60-90 second talking points script that highlights the key benefits and features of the product. Use a friendly and approachable tone, and make sure the script is easy to follow and understand. Focus on the most important information and avoid using overly technical or promotional language.
+{f"Additional Requirements: {additional_suggestions}" if additional_suggestions else ""}
+
+Please generate a 60 second talking points conversation scripts that highlights the key benefits and features of the product. Use a friendly and approachable tone, and make sure the script is easy to follow and understand. Focus on the most important information and avoid using overly technical or promotional language.
 
 The script should be written in a natural, conversational style, as if you were talking directly to the target audience. You can use storytelling techniques, examples, or anecdotes to make the product more relatable and interesting.
 
-Please output a script that is concise, clear, and engaging, and that effectively communicates the value of the product to the target audience."""
+Please output a script that is concise, clear, and engaging, and that effectively communicates the value of the product to the target audience.
+Please do not include any time stamp in the script, introduction or things about the script, just the actual talking points.
+"""
 
         payload = {
-            "model": "Llama-3.3-8B-Instruct",
+            "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -109,7 +314,11 @@ Please output a script that is concise, clear, and engaging, and that effectivel
             # Send the request
             response = requests.post(
                 f"{self.base_url}/chat/completions", 
-                headers=self.headers, 
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Accept": "text/event-stream"
+                }, 
                 json=payload,
                 stream=True
             )
@@ -221,6 +430,28 @@ except ValueError as e:
 async def root():
     return {"message": "Video Generator API is running!"}
 
+@app.post("/api/extract-product-details", response_model=ProductDetailsResponse)
+async def extract_product_details(request: ProductUrlRequest):
+    if not llama_service:
+        raise HTTPException(status_code=500, detail="LLAMA API service not available. Please check LLAMA_API_KEY environment variable.")
+    
+    try:
+        # Extract product details using Llama service
+        details = llama_service.extract_product_details(request.url)
+        
+        return ProductDetailsResponse(
+            product_description=details.get("product_description", ""),
+            key_features=details.get("key_features", []),
+            target_audience=details.get("target_audience", ""),
+            product_images=details.get("product_images", []),
+            status="completed"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
 @app.post("/api/upload-images")
 async def upload_images(files: List[UploadFile] = File(...)):
     uploaded_files = []
@@ -257,7 +488,8 @@ async def generate_script(request: ScriptGenerationRequest):
             request.product_description,
             request.key_features,
             request.customer_info,
-            request.style
+            request.style,
+            request.additional_suggestions
         )
         
         return ScriptResponse(

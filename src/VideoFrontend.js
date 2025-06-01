@@ -1,5 +1,16 @@
 import React, { useState } from "react";
-import { Upload, Video, Loader2, Plus, X } from "lucide-react";
+import {
+  Upload,
+  Video,
+  Loader2,
+  Plus,
+  X,
+  Link,
+  Search,
+  Sparkles,
+  Zap,
+  Star,
+} from "lucide-react";
 
 export const VideoGenerator = () => {
   const [formData, setFormData] = useState({
@@ -8,6 +19,8 @@ export const VideoGenerator = () => {
     customerInfo: "",
     style: "professional",
   });
+  const [productUrl, setProductUrl] = useState("");
+  const [isExtractingDetails, setIsExtractingDetails] = useState(false);
   const [images, setImages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState(null);
@@ -48,6 +61,66 @@ export const VideoGenerator = () => {
 
   const removeImage = (index) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const extractProductDetails = async () => {
+    if (!productUrl.trim()) {
+      alert("Please enter a product URL");
+      return;
+    }
+
+    setIsExtractingDetails(true);
+    try {
+      const response = await fetch(
+        "http://localhost:8000/api/extract-product-details",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url: productUrl,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+
+        setFormData((prev) => ({
+          ...prev,
+          productDescription:
+            result.product_description || prev.productDescription,
+          keyFeatures:
+            result.key_features && result.key_features.length > 0
+              ? result.key_features
+              : prev.keyFeatures,
+          customerInfo: result.target_audience || prev.customerInfo,
+        }));
+
+        if (result.product_images && result.product_images.length > 0) {
+          const imageObjects = result.product_images.map((imageUrl, index) => ({
+            file: null,
+            url: imageUrl,
+            name: `Product Image ${index + 1}`,
+            isFromUrl: true,
+          }));
+          setImages((prev) => [...prev, ...imageObjects]);
+        }
+
+        alert("Product details extracted successfully!");
+      } else {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.detail || "Failed to extract product details"
+        );
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert(`Failed to extract product details: ${error.message}`);
+    } finally {
+      setIsExtractingDetails(false);
+    }
   };
 
   const generateScript = async () => {
@@ -137,11 +210,12 @@ export const VideoGenerator = () => {
 
     setIsGenerating(true);
     try {
-      // First upload images if any
       let uploadedImages = [];
-      if (images.length > 0) {
+      const fileImages = images.filter((img) => img.file && !img.isFromUrl);
+
+      if (fileImages.length > 0) {
         const formDataImages = new FormData();
-        images.forEach((img) => formDataImages.append("files", img.file));
+        fileImages.forEach((img) => formDataImages.append("files", img.file));
 
         const uploadResponse = await fetch(
           "http://localhost:8000/api/upload-images",
@@ -157,7 +231,6 @@ export const VideoGenerator = () => {
         }
       }
 
-      // Generate video using the script
       const response = await fetch("http://localhost:8000/api/generate-video", {
         method: "POST",
         headers: {
@@ -184,355 +257,477 @@ export const VideoGenerator = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            AI Video Generator
-          </h1>
-          <p className="text-gray-600">
-            Create stunning product videos with AI
-          </p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute top-3/4 right-1/4 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl animate-pulse delay-2000"></div>
+      </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Input Form */}
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-2xl font-semibold mb-6 text-gray-800">
-              Project Details
-            </h2>
+      {/* Floating Particles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-1 h-1 bg-blue-400/20 rounded-full animate-ping"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${2 + Math.random() * 3}s`,
+            }}
+          ></div>
+        ))}
+      </div>
 
-            {/* Product Description */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Product Description *
-              </label>
-              <textarea
-                value={formData.productDescription}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    productDescription: e.target.value,
-                  }))
-                }
-                placeholder="Describe your product..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                rows="3"
-              />
-            </div>
-
-            {/* Key Features */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Key Features
-                </label>
-                <button
-                  onClick={addFeature}
-                  className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm"
-                >
-                  <Plus size={16} /> Add Feature
-                </button>
-              </div>
-              {formData.keyFeatures.map((feature, index) => (
-                <div key={index} className="flex gap-2 mb-2">
-                  <input
-                    value={feature}
-                    onChange={(e) => updateFeature(index, e.target.value)}
-                    placeholder={`Feature ${index + 1}`}
-                    className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  {formData.keyFeatures.length > 1 && (
-                    <button
-                      onClick={() => removeFeature(index)}
-                      className="text-red-500 hover:text-red-700 p-2"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
+      <div className="relative z-10 p-6">
+        <div className="max-w-7xl mx-auto">
+          {/* Hero Header */}
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-3 mb-6">
+              <div className="relative">
+                <Sparkles className="text-cyan-400 animate-pulse" size={32} />
+                <div className="absolute inset-0 blur-sm">
+                  <Sparkles className="text-cyan-400" size={32} />
                 </div>
-              ))}
+              </div>
+              <h1 className="text-6xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                Lumina
+              </h1>
+              <div className="relative">
+                <Star className="text-purple-400 animate-pulse" size={28} />
+                <div className="absolute inset-0 blur-sm">
+                  <Star className="text-purple-400" size={28} />
+                </div>
+              </div>
             </div>
+            <p className="text-xl text-slate-300 mb-4 font-light">
+              Illuminate Your Marketing with Personalized AI Videos
+            </p>
+            <p className="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
+              Lumina helps you shine a light on your marketing goals with
+              personalized AI videos that captivate your audience and drive real
+              results.
+            </p>
+          </div>
 
-            {/* Customer Info */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Target Audience
-              </label>
-              <input
-                value={formData.customerInfo}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    customerInfo: e.target.value,
-                  }))
-                }
-                placeholder="Who is this for? (optional)"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Style Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Video Style
-              </label>
-              <select
-                value={formData.style}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, style: e.target.value }))
-                }
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="professional">Professional</option>
-                <option value="casual">Casual</option>
-                <option value="energetic">Energetic</option>
-                <option value="minimal">Minimal</option>
-              </select>
-            </div>
-
-            {/* Image Upload */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Product Images
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                  id="image-upload"
-                />
-                <label htmlFor="image-upload" className="cursor-pointer">
-                  <Upload className="mx-auto mb-2 text-gray-400" size={24} />
-                  <p className="text-gray-600">Click to upload images</p>
-                </label>
+          <div className="grid xl:grid-cols-2 gap-8">
+            {/* Input Form */}
+            <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl shadow-2xl p-8 hover:bg-white/15 transition-all duration-500">
+              <div className="flex items-center gap-3 mb-8">
+                <Zap className="text-cyan-400" size={28} />
+                <h2 className="text-3xl font-bold text-white">Create Magic</h2>
               </div>
 
-              {images.length > 0 && (
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {images.map((img, index) => (
-                    <div key={index} className="relative group">
-                      <img
-                        src={img.url}
-                        alt={img.name}
-                        className="w-full h-20 object-cover rounded-lg"
+              {/* Product URL Input */}
+              <div className="mb-8">
+                <label className="block text-sm font-semibold text-slate-200 mb-3">
+                  Product URL
+                </label>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Link
+                      className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400"
+                      size={20}
+                    />
+                    <input
+                      value={productUrl}
+                      onChange={(e) => setProductUrl(e.target.value)}
+                      placeholder="https://example.com/product-page"
+                      className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/20 backdrop-blur-sm rounded-2xl text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={extractProductDetails}
+                    disabled={isExtractingDetails || !productUrl.trim()}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-4 rounded-2xl font-semibold hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all transform hover:scale-105 whitespace-nowrap shadow-lg"
+                  >
+                    {isExtractingDetails ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        Extracting...
+                      </>
+                    ) : (
+                      <>
+                        <Search size={18} />
+                        Extract
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  Automatically extract product details from any URL
+                </p>
+              </div>
+
+              {/* Divider */}
+              <div className="flex items-center my-8">
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                <span className="px-4 text-sm text-slate-300 font-medium">
+                  OR ENTER MANUALLY
+                </span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+              </div>
+
+              {/* Product Description */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-200 mb-3">
+                  Product Description *
+                </label>
+                <textarea
+                  value={formData.productDescription}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      productDescription: e.target.value,
+                    }))
+                  }
+                  placeholder="Describe your amazing product..."
+                  className="w-full p-4 bg-white/5 border border-white/20 backdrop-blur-sm rounded-2xl text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all resize-none"
+                  rows="4"
+                />
+              </div>
+
+              {/* Key Features */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <label className="block text-sm font-semibold text-slate-200">
+                    Key Features
+                  </label>
+                  <button
+                    onClick={addFeature}
+                    className="text-cyan-400 hover:text-cyan-300 flex items-center gap-2 text-sm font-medium bg-cyan-400/10 px-3 py-2 rounded-xl transition-all hover:bg-cyan-400/20"
+                  >
+                    <Plus size={16} /> Add Feature
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {formData.keyFeatures.map((feature, index) => (
+                    <div key={index} className="flex gap-3">
+                      <input
+                        value={feature}
+                        onChange={(e) => updateFeature(index, e.target.value)}
+                        placeholder={`Feature ${index + 1}`}
+                        className="flex-1 p-3 bg-white/5 border border-white/20 backdrop-blur-sm rounded-xl text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
                       />
-                      <button
-                        onClick={() => removeImage(index)}
-                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X size={12} />
-                      </button>
+                      {formData.keyFeatures.length > 1 && (
+                        <button
+                          onClick={() => removeFeature(index)}
+                          className="text-red-400 hover:text-red-300 p-3 bg-red-400/10 hover:bg-red-400/20 rounded-xl transition-all"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+
+              {/* Customer Info */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-200 mb-3">
+                  Target Audience
+                </label>
+                <input
+                  value={formData.customerInfo}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      customerInfo: e.target.value,
+                    }))
+                  }
+                  placeholder="Who will love this product?"
+                  className="w-full p-4 bg-white/5 border border-white/20 backdrop-blur-sm rounded-2xl text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                />
+              </div>
+
+              {/* Style Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-200 mb-3">
+                  Video Style
+                </label>
+                <select
+                  value={formData.style}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, style: e.target.value }))
+                  }
+                  className="w-full p-4 bg-white/5 border border-white/20 backdrop-blur-sm rounded-2xl text-white focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all"
+                >
+                  <option value="professional" className="bg-slate-800">
+                    Professional
+                  </option>
+                  <option value="casual" className="bg-slate-800">
+                    Casual
+                  </option>
+                  <option value="energetic" className="bg-slate-800">
+                    Energetic
+                  </option>
+                  <option value="minimal" className="bg-slate-800">
+                    Minimal
+                  </option>
+                </select>
+              </div>
+
+              {/* Image Upload */}
+              <div className="mb-8">
+                <label className="block text-sm font-semibold text-slate-200 mb-3">
+                  Product Images
+                </label>
+                <div className="border-2 border-dashed border-white/30 rounded-2xl p-8 text-center hover:border-cyan-400/50 transition-all bg-white/5 backdrop-blur-sm">
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    id="image-upload"
+                  />
+                  <label htmlFor="image-upload" className="cursor-pointer">
+                    <Upload
+                      className="mx-auto mb-3 text-slate-400 hover:text-cyan-400 transition-colors"
+                      size={32}
+                    />
+                    <p className="text-slate-300 font-medium">
+                      Click to upload images
+                    </p>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Support JPG, PNG, WebP
+                    </p>
+                  </label>
+                </div>
+
+                {images.length > 0 && (
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {images.map((img, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={img.url}
+                          alt={img.name}
+                          className="w-full h-24 object-cover rounded-xl border border-white/20"
+                        />
+                        <button
+                          onClick={() => removeImage(index)}
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        >
+                          <X size={14} />
+                        </button>
+                        {img.isFromUrl && (
+                          <div className="absolute bottom-2 left-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-lg">
+                            URL
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-4">
+                <button
+                  onClick={generateScript}
+                  disabled={
+                    isGeneratingScript || !formData.productDescription.trim()
+                  }
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-4 px-6 rounded-2xl font-semibold hover:from-emerald-400 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all transform hover:scale-105 shadow-xl"
+                >
+                  {isGeneratingScript ? (
+                    <>
+                      <Loader2 className="animate-spin" size={22} />
+                      Crafting Script...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={22} />
+                      Generate Script
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={generateVideo}
+                  disabled={isGenerating || !editedScript}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 px-6 rounded-2xl font-semibold hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all transform hover:scale-105 shadow-xl"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="animate-spin" size={22} />
+                      Creating Magic...
+                    </>
+                  ) : (
+                    <>
+                      <Video size={22} />
+                      Generate Video
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Generate Script Button */}
-            <button
-              onClick={generateScript}
-              disabled={
-                isGeneratingScript || !formData.productDescription.trim()
-              }
-              className="w-full bg-gradient-to-r from-green-600 to-teal-600 text-white py-3 px-6 rounded-lg font-semibold hover:from-green-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all mb-4"
-            >
-              {isGeneratingScript ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} />
-                  Generating Script...
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            {/* Result Panel */}
+            <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl shadow-2xl p-8 hover:bg-white/15 transition-all duration-500">
+              <div className="flex items-center gap-3 mb-8">
+                <Star className="text-purple-400" size={28} />
+                <h2 className="text-3xl font-bold text-white">Your Creation</h2>
+              </div>
+
+              {!result && !script && !isGenerating && !isGeneratingScript && (
+                <div className="text-center text-slate-400 py-16">
+                  <div className="relative mb-6">
+                    <Video size={64} className="mx-auto opacity-30" />
+                    <div className="absolute inset-0 blur-sm">
+                      <Video size={64} className="mx-auto opacity-20" />
+                    </div>
+                  </div>
+                  <p className="text-lg font-medium mb-2">
+                    Ready to create something amazing?
+                  </p>
+                  <p className="text-slate-500">
+                    Generate a script first, then watch the magic happen
+                  </p>
+                </div>
+              )}
+
+              {(isGeneratingScript || isGenerating) && (
+                <div className="text-center py-16">
+                  <div className="relative mb-6">
+                    <Loader2
+                      className="animate-spin mx-auto text-cyan-400"
+                      size={64}
                     />
-                  </svg>
-                  Generate Script
-                </>
+                    <div className="absolute inset-0 blur-lg">
+                      <Loader2
+                        className="animate-spin mx-auto text-cyan-400"
+                        size={64}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xl text-white font-semibold mb-2">
+                    {isGeneratingScript
+                      ? "Crafting your perfect script..."
+                      : "Bringing your vision to life..."}
+                  </p>
+                  <p className="text-slate-400">
+                    Lumina is working her magic ✨
+                  </p>
+                </div>
               )}
-            </button>
 
-            {/* Generate Video Button */}
-            <button
-              onClick={generateVideo}
-              disabled={isGenerating || !editedScript}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} />
-                  Generating Video...
-                </>
-              ) : (
-                <>
-                  <Video size={20} />
-                  Generate Video
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Result Panel */}
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-2xl font-semibold mb-6 text-gray-800">
-              Generated Content
-            </h2>
-
-            {!result && !script && !isGenerating && !isGeneratingScript && (
-              <div className="text-center text-gray-500 py-12">
-                <Video size={48} className="mx-auto mb-4 opacity-50" />
-                <p>Generate a script first, then create your video</p>
-              </div>
-            )}
-
-            {(isGeneratingScript || isGenerating) && (
-              <div className="text-center py-12">
-                <Loader2
-                  className="animate-spin mx-auto mb-4 text-blue-600"
-                  size={48}
-                />
-                <p className="text-gray-600">
-                  {isGeneratingScript
-                    ? "Creating your script..."
-                    : "Creating your video..."}
-                </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  This may take a few moments
-                </p>
-              </div>
-            )}
-
-            {script && !result && (
-              <div className="space-y-6">
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold text-gray-800">
-                      Generated Script
-                    </h3>
-                    <div className="flex gap-2">
+              {script && !result && (
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-white text-xl">
+                        AI-Generated Script
+                      </h3>
                       <button
                         onClick={regenerateScript}
                         disabled={isGeneratingScript}
-                        className="text-sm bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 disabled:opacity-50 flex items-center gap-1"
+                        className="text-sm bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-4 py-2 rounded-xl hover:from-yellow-400 hover:to-orange-400 disabled:opacity-50 flex items-center gap-2 transition-all transform hover:scale-105"
                       >
                         {isGeneratingScript ? (
-                          <Loader2 className="animate-spin" size={12} />
+                          <Loader2 className="animate-spin" size={14} />
                         ) : (
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
+                          <Sparkles size={14} />
                         )}
                         Regenerate
                       </button>
                     </div>
-                  </div>
 
-                  {/* Additional Suggestions Input */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Additional Suggestions (for regeneration)
-                    </label>
-                    <textarea
-                      value={additionalSuggestions}
-                      onChange={(e) => setAdditionalSuggestions(e.target.value)}
-                      placeholder="Add any specific requirements or changes you'd like in the script..."
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                      rows="2"
-                    />
-                  </div>
-
-                  {/* Editable Script */}
-                  <div className="bg-gray-50 rounded-lg border">
-                    <div className="bg-gray-100 px-4 py-2 rounded-t-lg border-b">
-                      <span className="text-sm font-medium text-gray-600">
-                        Script Editor (Click to edit)
-                      </span>
+                    <div className="mb-4">
+                      <label className="block text-sm font-semibold text-slate-200 mb-2">
+                        Additional Suggestions
+                      </label>
+                      <textarea
+                        value={additionalSuggestions}
+                        onChange={(e) =>
+                          setAdditionalSuggestions(e.target.value)
+                        }
+                        placeholder="Tell Lumina how to improve the script..."
+                        className="w-full p-3 bg-white/5 border border-white/20 backdrop-blur-sm rounded-xl text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50 transition-all resize-none"
+                        rows="2"
+                      />
                     </div>
-                    <textarea
-                      value={editedScript}
-                      onChange={(e) => setEditedScript(e.target.value)}
-                      className="w-full p-4 bg-transparent border-none focus:ring-0 focus:outline-none resize-none font-mono text-sm"
-                      rows="12"
-                      placeholder="Your script will appear here..."
-                    />
-                  </div>
 
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-green-600">
-                      ✅ Script ready! Edit if needed, then generate video.
-                    </p>
-                    <div className="text-xs text-gray-500">
+                    <div className="bg-black/20 rounded-2xl border border-white/10 overflow-hidden">
+                      <div className="bg-white/5 px-4 py-3 border-b border-white/10">
+                        <span className="text-sm font-semibold text-slate-200">
+                          Script Editor
+                        </span>
+                      </div>
+                      <textarea
+                        value={editedScript}
+                        onChange={(e) => setEditedScript(e.target.value)}
+                        className="w-full p-4 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-slate-200 font-mono text-sm"
+                        rows="14"
+                        placeholder="Your script will appear here..."
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                        <p className="text-sm text-emerald-400 font-medium">
+                          Script ready! Edit if needed, then generate video.
+                        </p>
+                      </div>
                       {editedScript !== script && (
-                        <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                        <span className="bg-cyan-400/20 text-cyan-300 px-3 py-1 rounded-full text-xs font-medium">
                           Modified
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {result && (
-              <div className="space-y-6">
-                {/* Generated Script */}
-                <div>
-                  <h3 className="font-semibold text-gray-800 mb-3">
-                    Generated Script
-                  </h3>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
-                      {result.script}
-                    </pre>
+              {result && (
+                <div className="space-y-8">
+                  <div>
+                    <h3 className="font-bold text-white text-xl mb-4">
+                      Final Script
+                    </h3>
+                    <div className="bg-black/20 p-4 rounded-2xl border border-white/10">
+                      <pre className="whitespace-pre-wrap text-sm text-slate-200 font-mono">
+                        {result.script}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold text-white text-xl mb-4">
+                      Your Video is Ready!
+                    </h3>
+                    <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-2xl p-8 text-center border border-purple-400/30">
+                      <div className="relative mb-6">
+                        <Video size={64} className="mx-auto text-purple-400" />
+                        <div className="absolute inset-0 blur-lg">
+                          <Video
+                            size={64}
+                            className="mx-auto text-purple-400"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xl text-white font-semibold mb-4">
+                        🎉 Video generated successfully!
+                      </p>
+                      <p className="text-sm text-slate-300 mb-6 break-all">
+                        {result.hosted_url}
+                      </p>
+                      <button className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-3 rounded-2xl hover:from-purple-500 hover:to-pink-500 transition-all transform hover:scale-105 font-semibold shadow-xl">
+                        Download Video
+                      </button>
+                    </div>
                   </div>
                 </div>
-
-                {/* Video Preview */}
-                <div>
-                  <h3 className="font-semibold text-gray-800 mb-3">
-                    Video Preview
-                  </h3>
-                  <div className="bg-gradient-to-br from-blue-100 to-purple-100 rounded-lg p-8 text-center">
-                    <Video size={48} className="mx-auto mb-4 text-blue-600" />
-                    <p className="text-gray-700 mb-4">
-                      Video generated successfully!
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      URL: {result.hosted_url}
-                    </p>
-                    <button className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                      Download Video
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 };
+
+export default VideoGenerator;
